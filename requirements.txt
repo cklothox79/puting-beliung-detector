@@ -1,0 +1,28 @@
+# Core
+numpy
+pandas
+xarray
+scipy
+
+# Time & Geo
+python-dateutil
+pytz
+shapely
+pyproj
+
+# NetCDF / Satelit / NWP
+netCDF4
+h5py
+
+# Visualization
+matplotlib
+cartopy
+
+# Config & Utilities
+pyyaml
+tqdm
+
+# Optional (UI / future)
+streamlit
+fastapi
+uvicorn
