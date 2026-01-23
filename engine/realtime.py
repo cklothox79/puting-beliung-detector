@@ -1,69 +1,63 @@
-# ======================================================
-# realtime.py
-# MODE OPERASIONAL - AUTO UPDATE
-# Puting Beliung Detector
-# ======================================================
+# ==========================================================
+#  REALTIME DATA ENGINE
+#  Module : engine/realtime.py
+# ==========================================================
 
-import time
-import json
-import os
+import pandas as pd
+import random
 from datetime import datetime
 
-from engine.reader import load_data
-from engine.detector import detect_puting_beliung
-from engine.narrator import generate_narration
-
-# ===============================
+# ======================
 # KONFIGURASI
-# ===============================
-INTERVAL_MINUTE = 10
-OUTPUT_DIR = "output"
-STATUS_FILE = os.path.join(OUTPUT_DIR, "latest_status.json")
+# ======================
+WILAYAH_SAMPLE = [
+    {"wilayah": "Sidoarjo", "lat": -7.45, "lon": 112.70},
+    {"wilayah": "Gresik", "lat": -7.16, "lon": 112.65},
+    {"wilayah": "Mojokerto", "lat": -7.47, "lon": 112.43},
+    {"wilayah": "Pasuruan", "lat": -7.65, "lon": 112.90},
+    {"wilayah": "Jombang", "lat": -7.55, "lon": 112.23},
+]
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+LEVELS = ["WASPADA", "SIAGA", "AWAS"]
 
-# ===============================
-# SATU SIKLUS ANALISIS
-# ===============================
-def run_cycle():
-    print("\n▶ Mulai siklus deteksi...")
+KETERANGAN = {
+    "WASPADA": "Pertumbuhan awan Cb terpantau",
+    "SIAGA": "Shear rendah dan konvergensi terdeteksi",
+    "AWAS": "Indikasi kuat puting beliung"
+}
 
-    ds = load_data()
-    detection = detect_puting_beliung(ds)
+# ======================
+# GENERATE DATA REALTIME
+# ======================
+def load_realtime_data():
+    """
+    Menghasilkan data realtime indikasi puting beliung
+    (versi simulasi operasional)
+    """
 
-    narration = generate_narration(detection)
+    data = []
 
-    status = {
-        "timestamp_utc": datetime.utcnow().isoformat(),
-        "risk_level": detection["risk_level"],
-        "risk_text": detection["risk_text"],
-        "confidence": detection.get("confidence", 0),
-        "narration": narration,
-    }
+    # Jumlah titik aktif (acak tapi realistis)
+    n_points = random.randint(1, 4)
 
-    with open(STATUS_FILE, "w") as f:
-        json.dump(status, f, indent=2)
+    selected = random.sample(WILAYAH_SAMPLE, n_points)
 
-    print("✓ Siklus selesai | Status:", status["risk_text"])
+    for loc in selected:
+        level = random.choices(
+            LEVELS,
+            weights=[0.5, 0.3, 0.2],
+            k=1
+        )[0]
 
-# ===============================
-# LOOP OPERASIONAL
-# ===============================
-if __name__ == "__main__":
-    print("🚀 PUTING BELIUNG DETECTOR")
-    print("📡 MODE OPERASIONAL AKTIF")
-    print(f"⏱ Update tiap {INTERVAL_MINUTE} menit")
+        data.append({
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            "wilayah": loc["wilayah"],
+            "lat": loc["lat"] + random.uniform(-0.05, 0.05),
+            "lon": loc["lon"] + random.uniform(-0.05, 0.05),
+            "level": level,
+            "keterangan": KETERANGAN[level]
+        })
 
-    while True:
-        try:
-            run_cycle()
-            time.sleep(INTERVAL_MINUTE * 60)
+    df = pd.DataFrame(data)
 
-        except KeyboardInterrupt:
-            print("\n⛔ Dihentikan manual")
-            break
-
-        except Exception as e:
-            print("⚠ ERROR:", e)
-            print("⏳ Coba lagi 1 menit...")
-            time.sleep(60)
+    return df
