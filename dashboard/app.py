@@ -1,56 +1,106 @@
-# ======================================================
-# app.py
-# Dashboard Operasional Puting Beliung
-# ======================================================
+# ==========================================================
+#  PUTING BELIUNG DETECTOR – DASHBOARD OPERASIONAL
+#  Repo  : puting-beliung-detector
+#  Mode  : Realtime Monitoring
+#  Author: Tim Operasional
+# ==========================================================
 
 import streamlit as st
-import json
-import time
-from datetime import datetime
+from visualization.plotter import render_realtime_map
+from engine.realtime import load_realtime_data
+from engine.logger import setup_logger
 
-STATUS_FILE = "output/latest_status.json"
-REFRESH_SECOND = 30
-
+# ======================
+# CONFIG DASAR
+# ======================
 st.set_page_config(
-    page_title="Early Warning Puting Beliung",
-    layout="centered"
+    page_title="Puting Beliung Detector",
+    page_icon="🌪️",
+    layout="wide"
 )
 
-st.title("🌪️ EARLY WARNING PUTING BELIUNG")
-st.caption("BMKG – Sistem Operasional Otomatis")
+logger = setup_logger()
 
-placeholder = st.empty()
+# ======================
+# SIDEBAR
+# ======================
+st.sidebar.title("🌪️ Puting Beliung Detector")
+st.sidebar.caption("Mode Operasional • Realtime")
 
-def load_status():
-    with open(STATUS_FILE) as f:
-        return json.load(f)
+st.sidebar.markdown("---")
 
-while True:
-    with placeholder.container():
-        try:
-            status = load_status()
+interval = st.sidebar.selectbox(
+    "⏱️ Interval Update (detik)",
+    options=[30, 60, 120, 300],
+    index=1
+)
 
-            # Header status
-            st.subheader("Status Terkini")
+show_map = st.sidebar.checkbox("🗺️ Tampilkan Peta", value=True)
+show_table = st.sidebar.checkbox("📋 Tampilkan Tabel Data", value=True)
 
-            if status["risk_level"] == 2:
-                st.error(status["risk_text"])
-            elif status["risk_level"] == 1:
-                st.warning(status["risk_text"])
-            else:
-                st.success(status["risk_text"])
+st.sidebar.markdown("---")
+st.sidebar.caption("BMKG Style Early Warning")
 
-            # Detail
-            ts = datetime.fromisoformat(status["timestamp_utc"])
-            st.write(f"🕒 Update terakhir: **{ts} UTC**")
-            st.progress(status["confidence"] / 100)
+# ======================
+# AUTO REFRESH
+# ======================
+st.experimental_autorefresh(
+    interval=interval * 1000,
+    key="auto_refresh_dashboard"
+)
 
-            st.markdown("### Narasi Otomatis")
-            st.info(status["narration"])
+# ======================
+# HEADER
+# ======================
+st.title("🌪️ Dashboard Realtime Deteksi Puting Beliung")
+st.markdown(
+    """
+    **Sistem pemantauan berbasis analisis dinamika atmosfer & satelit.**  
+    Update otomatis sesuai interval operasional.
+    """
+)
 
-        except Exception as e:
-            st.warning("Menunggu data dari engine...")
-            st.caption(str(e))
+# ======================
+# LOAD DATA REALTIME
+# ======================
+try:
+    df_realtime = load_realtime_data()
+    logger.info("Realtime data loaded successfully")
+except Exception as e:
+    st.error("Gagal memuat data realtime")
+    logger.error(f"Realtime load error: {e}")
+    df_realtime = None
 
-    time.sleep(REFRESH_SECOND)
-    st.experimental_rerun()
+# ======================
+# LAYOUT UTAMA
+# ======================
+if show_map:
+    st.subheader("🗺️ Peta Realtime Wilayah Terindikasi")
+
+    render_realtime_map(
+        realtime_df=df_realtime,
+        height=600
+    )
+
+# ======================
+# TABEL DATA
+# ======================
+if show_table:
+    st.subheader("📋 Data Realtime Deteksi")
+
+    if df_realtime is not None and not df_realtime.empty:
+        st.dataframe(
+            df_realtime,
+            use_container_width=True
+        )
+    else:
+        st.info("Belum ada data indikasi puting beliung.")
+
+# ======================
+# FOOTER
+# ======================
+st.markdown("---")
+st.caption(
+    "© Sistem Deteksi Dini Puting Beliung | "
+    "BMKG-style Operational Dashboard"
+)
