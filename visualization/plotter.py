@@ -1,5 +1,5 @@
 # ==========================================================
-#  PLOTTER – PETA REALTIME PUTING BELIUNG
+#  PLOTTER – PETA REALTIME PUTING BELIUNG (POLYGON RISIKO)
 #  Module : visualization/plotter.py
 # ==========================================================
 
@@ -9,78 +9,100 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 # ======================
-# LOAD SHAPEFILE (CACHE)
+# COLOR MAP LEVEL
+# ======================
+LEVEL_COLOR = {
+    "WASPADA": "#FFF176",  # kuning
+    "SIAGA": "#FFB74D",    # oranye
+    "AWAS": "#E57373"      # merah
+}
+
+# ======================
+# LOAD BATAS WILAYAH
 # ======================
 @st.cache_data
 def load_boundary():
     """
-    Load batas wilayah (GeoJSON).
-    Disarankan: kecamatan / desa dalam format GeoJSON.
+    GeoJSON wilayah (prov/kab/kec/desa)
+    HARUS punya kolom 'wilayah'
     """
     return gpd.read_file("data/shp/batas_wilayah.geojson")
 
+# ======================
+# HITUNG LEVEL PER WILAYAH
+# ======================
+def aggregate_level(realtime_df):
+    """
+    Ambil level tertinggi per wilayah
+    """
+    if realtime_df is None or realtime_df.empty:
+        return {}
+
+    priority = {"WASPADA": 1, "SIAGA": 2, "AWAS": 3}
+
+    agg = {}
+    for _, row in realtime_df.iterrows():
+        w = row["wilayah"]
+        lvl = row["level"]
+
+        if w not in agg or priority[lvl] > priority[agg[w]]:
+            agg[w] = lvl
+
+    return agg
 
 # ======================
 # RENDER MAP
 # ======================
 def render_realtime_map(realtime_df, height=600):
-    """
-    Menampilkan peta realtime dengan overlay wilayah
-    dan titik indikasi puting beliung
-    """
 
-    # ------------------
-    # Base Map
-    # ------------------
     m = folium.Map(
-        location=[-7.5, 112.5],  # Jawa Timur
+        location=[-7.5, 112.5],
         zoom_start=8,
         tiles="CartoDB positron"
     )
 
     # ------------------
-    # Overlay Wilayah
+    # POLYGON RISIKO
     # ------------------
     try:
         gdf = load_boundary()
+        level_map = aggregate_level(realtime_df)
+
+        def style_func(feature):
+            wilayah = feature["properties"].get("wilayah")
+            level = level_map.get(wilayah)
+
+            return {
+                "fillColor": LEVEL_COLOR.get(level, "transparent"),
+                "color": "#444444",
+                "weight": 1,
+                "fillOpacity": 0.6 if level else 0.1
+            }
 
         folium.GeoJson(
             gdf,
-            name="Batas Wilayah",
-            style_function=lambda x: {
-                "fillColor": "transparent",
-                "color": "#333333",
-                "weight": 1
-            },
+            name="Risiko Puting Beliung",
+            style_function=style_func,
             tooltip=folium.GeoJsonTooltip(
-                fields=[gdf.columns[0]],
+                fields=["wilayah"],
                 aliases=["Wilayah"]
             )
         ).add_to(m)
 
     except Exception as e:
-        st.warning(f"Gagal memuat batas wilayah: {e}")
+        st.warning(f"Gagal memuat polygon wilayah: {e}")
 
     # ------------------
-    # Titik Realtime
+    # TITIK DETAIL
     # ------------------
     if realtime_df is not None and not realtime_df.empty:
         for _, row in realtime_df.iterrows():
+            color = LEVEL_COLOR.get(row["level"], "blue")
 
-            # Tentukan warna berdasar level
-            level = row.get("level", "WASPADA")
-
-            if level == "AWAS":
-                color = "red"
-            elif level == "SIAGA":
-                color = "orange"
-            else:
-                color = "yellow"
-
-            popup_text = f"""
-            <b>Lokasi</b> : {row.get('wilayah','-')}<br>
-            <b>Level</b> : {level}<br>
-            <b>Keterangan</b> : {row.get('keterangan','-')}
+            popup = f"""
+            <b>Wilayah</b>: {row['wilayah']}<br>
+            <b>Level</b>: {row['level']}<br>
+            <b>Detail</b>: {row['keterangan']}
             """
 
             folium.CircleMarker(
@@ -88,17 +110,10 @@ def render_realtime_map(realtime_df, height=600):
                 radius=7,
                 color=color,
                 fill=True,
-                fill_opacity=0.85,
-                popup=popup_text
+                fill_opacity=0.9,
+                popup=popup
             ).add_to(m)
 
     folium.LayerControl().add_to(m)
 
-    # ------------------
-    # Render ke Streamlit
-    # ------------------
-    st_folium(
-        m,
-        width=1200,
-        height=height
-    )
+    st_folium(m, width=1200, height=height)
