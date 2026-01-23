@@ -27,3 +27,4 @@ tqdm
 streamlit
 fastapi
 uvicorn
+pyyaml
