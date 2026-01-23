@@ -1,160 +1,92 @@
 # ==========================================================
-# detector.py
-# Engine Keputusan Puting Beliung
-# Versi: BMKG Operasional
+#  DETECTOR CORE – PUTING BELIUNG
+#  Module : engine/detector.py
 # ==========================================================
 
-import numpy as np
-import xarray as xr
 import pandas as pd
 
-# ==========================================================
-# PARAMETER DEFAULT (bisa dipindah ke config.yaml)
-# ==========================================================
-CI_HIGH = 0.7
-CI_MED = 0.4
-RCR_THRESHOLD = 3.0
-BT_DEEP = 235
-BT_VERY_DEEP = 220
+# ======================
+# PARAMETER AMBANG (AWAL)
+# ======================
+THRESHOLDS = {
+    "shear": {
+        "WASPADA": 8,
+        "SIAGA": 12,
+        "AWAS": 16
+    },
+    "cape": {
+        "WASPADA": 500,
+        "SIAGA": 1000,
+        "AWAS": 2000
+    },
+    "cb_index": {
+        "WASPADA": 0.4,
+        "SIAGA": 0.6,
+        "AWAS": 0.8
+    }
+}
 
+# ======================
+# HITUNG LEVEL
+# ======================
+def classify_level(shear, cape, cb_index):
+    score = 0
 
-# ==========================================================
-# 1️⃣ DETEKSI GRID BERISIKO
-# ==========================================================
-def detect_grid_risk(ds):
-    """
-    Deteksi grid berpotensi puting beliung
-    Output: Dataset + flag risiko
-    """
-    if "CI" not in ds:
-        raise ValueError("CI belum tersedia, jalankan indices.py dulu")
+    if shear >= THRESHOLDS["shear"]["AWAS"]:
+        score += 3
+    elif shear >= THRESHOLDS["shear"]["SIAGA"]:
+        score += 2
+    elif shear >= THRESHOLDS["shear"]["WASPADA"]:
+        score += 1
 
-    risk_flag = xr.zeros_like(ds["CI"], dtype=int)
+    if cape >= THRESHOLDS["cape"]["AWAS"]:
+        score += 3
+    elif cape >= THRESHOLDS["cape"]["SIAGA"]:
+        score += 2
+    elif cape >= THRESHOLDS["cape"]["WASPADA"]:
+        score += 1
 
-    # Skema logika BMKG
-    risk_flag = xr.where(ds["CI"] >= CI_HIGH, 2, risk_flag)
-    risk_flag = xr.where(
-        (ds["CI"] >= CI_MED) &
-        (ds["RCR"] >= RCR_THRESHOLD) &
-        (ds["BT_IR"] <= BT_DEEP),
-        1,
-        risk_flag
-    )
+    if cb_index >= THRESHOLDS["cb_index"]["AWAS"]:
+        score += 3
+    elif cb_index >= THRESHOLDS["cb_index"]["SIAGA"]:
+        score += 2
+    elif cb_index >= THRESHOLDS["cb_index"]["WASPADA"]:
+        score += 1
 
-    risk_flag.name = "RISK_FLAG"
-    risk_flag.attrs["description"] = "0: rendah | 1: waspada | 2: bahaya"
-
-    ds["RISK_FLAG"] = risk_flag
-    return ds
-
-
-# ==========================================================
-# 2️⃣ FILTER KONSISTENSI WAKTU
-# ==========================================================
-def temporal_consistency(ds, min_duration=2):
-    """
-    Menyaring sinyal sesaat (noise)
-    min_duration: jumlah timestep berturut-turut
-    """
-    flag = ds["RISK_FLAG"]
-
-    def _filter(series):
-        count = 0
-        out = []
-        for v in series:
-            if v > 0:
-                count += 1
-            else:
-                count = 0
-            out.append(v if count >= min_duration else 0)
-        return np.array(out)
-
-    filtered = xr.apply_ufunc(
-        _filter,
-        flag,
-        input_core_dims=[["time"]],
-        output_core_dims=[["time"]],
-        vectorize=True,
-        dask="parallelized",
-        output_dtypes=[int],
-    )
-
-    filtered.name = "RISK_FLAG_FILTERED"
-    filtered.attrs["description"] = "Risiko setelah filter temporal"
-
-    ds["RISK_FLAG_FILTERED"] = filtered
-    return ds
-
-
-# ==========================================================
-# 3️⃣ AGREGASI WILAYAH (KECAMATAN)
-# ==========================================================
-def aggregate_region(ds, method="max"):
-    """
-    Agregasi risiko wilayah
-    """
-    flag = ds["RISK_FLAG_FILTERED"]
-
-    if method == "max":
-        region_risk = flag.max(dim=["lat", "lon"])
-    elif method == "mean":
-        region_risk = flag.mean(dim=["lat", "lon"])
+    if score >= 7:
+        return "AWAS"
+    elif score >= 4:
+        return "SIAGA"
     else:
-        raise ValueError("Metode agregasi tidak dikenal")
+        return "WASPADA"
 
-    region_risk.name = "REGION_RISK"
-    region_risk.attrs["description"] = "Risiko agregat wilayah"
-
-    return region_risk
-
-
-# ==========================================================
-# 4️⃣ KEPUTUSAN OPERASIONAL
-# ==========================================================
-def decision_engine(region_risk):
+# ======================
+# DETECTION ENGINE
+# ======================
+def run_detector(input_df):
     """
-    Mengubah angka menjadi keputusan
+    input_df minimal kolom:
+    wilayah, lat, lon, shear, cape, cb_index
     """
-    decisions = []
 
-    for t, val in zip(region_risk.time.values, region_risk.values):
-        if val >= 2:
-            status = "PERINGATAN DINI PUTING BELIUNG"
-        elif val >= 1:
-            status = "WASPADA CUACA EKSTREM"
-        else:
-            status = "NORMAL"
+    results = []
 
-        decisions.append({
-            "time": pd.to_datetime(t),
-            "risk_value": float(val),
-            "status": status
+    for _, row in input_df.iterrows():
+        level = classify_level(
+            row["shear"],
+            row["cape"],
+            row["cb_index"]
+        )
+
+        results.append({
+            "wilayah": row["wilayah"],
+            "lat": row["lat"],
+            "lon": row["lon"],
+            "level": level,
+            "shear": row["shear"],
+            "cape": row["cape"],
+            "cb_index": row["cb_index"],
+            "keterangan": f"Shear={row['shear']} kt | CAPE={row['cape']} J/kg | CbIndex={row['cb_index']}"
         })
 
-    return pd.DataFrame(decisions)
-
-
-# ==========================================================
-# 5️⃣ PIPELINE DETEKSI TERPADU
-# ==========================================================
-def run_detection(ds):
-    """
-    Pipeline lengkap deteksi puting beliung
-    """
-    ds = detect_grid_risk(ds)
-    ds = temporal_consistency(ds)
-    region_risk = aggregate_region(ds)
-    decision = decision_engine(region_risk)
-
-    return {
-        "dataset": ds,
-        "region_risk": region_risk,
-        "decision": decision
-    }
-
-
-# ==========================================================
-# MAIN TEST
-# ==========================================================
-if __name__ == "__main__":
-    print("⚠️ Detector BMKG siap dijalankan")
+    return pd.DataFrame(results)
