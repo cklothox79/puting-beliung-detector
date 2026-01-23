@@ -28,3 +28,4 @@ streamlit
 fastapi
 uvicorn
 pyyaml
+reportlab
