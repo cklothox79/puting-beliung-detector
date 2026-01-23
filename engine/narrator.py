@@ -1,156 +1,60 @@
 # ==========================================================
-# narrator.py
-# Narasi Otomatis Puting Beliung
-# Versi: BMKG Operasional
+#  NARRATOR – NARASI OTOMATIS BMKG
+#  Module : engine/narrator.py
 # ==========================================================
 
 from datetime import datetime
-import pandas as pd
 
-# ==========================================================
-# UTIL FORMAT WAKTU
-# ==========================================================
-def format_time(dt):
-    """
-    Format waktu gaya BMKG
-    """
-    if isinstance(dt, str):
-        dt = pd.to_datetime(dt)
-    return dt.strftime("%d %B %Y pukul %H.%M WIB")
+# ======================
+# TEMPLATE KALIMAT
+# ======================
+LEVEL_TEXT = {
+    "WASPADA": "perlu diwaspadai potensi cuaca ekstrem skala lokal",
+    "SIAGA": "terdapat peningkatan potensi kejadian cuaca ekstrem",
+    "AWAS": "berpotensi terjadi cuaca ekstrem signifikan berupa puting beliung"
+}
 
-
-# ==========================================================
-# 1️⃣ NARASI STATUS UMUM
-# ==========================================================
-def general_narrative(decision_df, region_name="wilayah kajian"):
+# ======================
+# GENERATE NARASI
+# ======================
+def generate_narrative(df):
     """
-    Narasi status umum cuaca ekstrem
+    Membuat narasi operasional BMKG
+    input: DataFrame hasil detector
     """
-    latest = decision_df.iloc[-1]
 
-    status = latest["status"]
-    waktu = format_time(latest["time"])
+    if df is None or df.empty:
+        return (
+            "Berdasarkan hasil pemantauan dinamika atmosfer dan citra satelit, "
+            "tidak terpantau adanya indikasi signifikan potensi puting beliung "
+            "di wilayah Jawa Timur pada periode pengamatan."
+        )
+
+    waktu = datetime.utcnow().strftime("%d %B %Y pukul %H:%M UTC")
+
+    wilayah_list = df["wilayah"].unique().tolist()
+    wilayah_text = ", ".join(wilayah_list)
+
+    level_tertinggi = df["level"].value_counts().idxmax()
 
     narasi = (
-        f"Berdasarkan hasil analisis dinamika atmosfer dan pemantauan "
-        f"citra satelit terkini, kondisi cuaca di {region_name} pada "
-        f"{waktu} berada pada status **{status}**."
+        f"Berdasarkan hasil analisis dinamika atmosfer dan pengolahan data satelit, "
+        f"terpantau {LEVEL_TEXT[level_tertinggi]} "
+        f"di wilayah {wilayah_text} "
+        f"pada {waktu}. "
+    )
+
+    # Detail teknis (opsional tapi BMKG banget)
+    narasi += (
+        "Kondisi ini didukung oleh adanya labilitas atmosfer sedang hingga kuat "
+        "yang ditandai dengan nilai CAPE yang cukup tinggi, "
+        "serta dukungan faktor dinamika atmosfer berupa shear angin rendah "
+        "dan pertumbuhan awan konvektif signifikan. "
+    )
+
+    narasi += (
+        "Masyarakat diimbau untuk tetap waspada terhadap potensi "
+        "angin kencang sesaat, hujan lebat, dan fenomena cuaca ekstrem lainnya."
     )
 
     return narasi
-
-
-# ==========================================================
-# 2️⃣ NARASI DINAMIKA ATMOSFER
-# ==========================================================
-def dynamic_narrative(ds):
-    """
-    Narasi berbasis parameter fisis
-    """
-    kalimat = []
-
-    if "BT_IR" in ds:
-        bt_min = float(ds["BT_IR"].min())
-        kalimat.append(
-            f"Suhu puncak awan teramati relatif dingin dengan nilai minimum "
-            f"sekitar {bt_min:.1f} K, mengindikasikan pertumbuhan awan "
-            f"konvektif signifikan."
-        )
-
-    if "RCR" in ds:
-        rcr_max = float(ds["RCR"].max())
-        kalimat.append(
-            f"Terdapat indikasi pendinginan cepat puncak awan "
-            f"dengan nilai Rapid Cooling Rate mencapai "
-            f"{rcr_max:.1f} K per 10 menit."
-        )
-
-    if "CI" in ds:
-        ci_max = float(ds["CI"].max())
-        kalimat.append(
-            f"Indeks komposit konvektif menunjukkan nilai maksimum "
-            f"hingga {ci_max:.2f}, yang mencerminkan peningkatan potensi "
-            f"cuaca ekstrem."
-        )
-
-    return " ".join(kalimat)
-
-
-# ==========================================================
-# 3️⃣ NARASI DAMPAK POTENSIAL
-# ==========================================================
-def impact_narrative(status):
-    """
-    Narasi dampak cuaca ekstrem
-    """
-    if "PERINGATAN" in status:
-        return (
-            "Kondisi tersebut berpotensi menimbulkan kejadian puting beliung, "
-            "angin kencang, hujan lebat disertai kilat/petir, serta berisiko "
-            "menyebabkan kerusakan infrastruktur ringan hingga sedang."
-        )
-    elif "WASPADA" in status:
-        return (
-            "Masyarakat diimbau untuk tetap waspada terhadap kemungkinan "
-            "terjadinya cuaca ekstrem berskala lokal."
-        )
-    else:
-        return (
-            "Secara umum kondisi atmosfer relatif stabil dan belum "
-            "menunjukkan potensi signifikan cuaca ekstrem."
-        )
-
-
-# ==========================================================
-# 4️⃣ NARASI REKOMENDASI
-# ==========================================================
-def recommendation_narrative(status):
-    """
-    Rekomendasi tindak lanjut
-    """
-    if "PERINGATAN" in status:
-        return (
-            "Disarankan kepada instansi terkait dan masyarakat "
-            "untuk meningkatkan kewaspadaan serta melakukan langkah "
-            "antisipasi terhadap potensi dampak cuaca ekstrem."
-        )
-    elif "WASPADA" in status:
-        return (
-            "Disarankan untuk terus memantau informasi cuaca terkini "
-            "dari BMKG."
-        )
-    else:
-        return (
-            "Pemantauan kondisi cuaca akan terus dilakukan secara rutin."
-        )
-
-
-# ==========================================================
-# 5️⃣ PIPELINE NARASI TERPADU
-# ==========================================================
-def generate_full_narrative(
-    detection_output,
-    region_name="wilayah kajian"
-):
-    """
-    Menghasilkan narasi lengkap BMKG-style
-    """
-    decision_df = detection_output["decision"]
-    ds = detection_output["dataset"]
-
-    latest_status = decision_df.iloc[-1]["status"]
-
-    narasi = []
-    narasi.append(general_narrative(decision_df, region_name))
-    narasi.append(dynamic_narrative(ds))
-    narasi.append(impact_narrative(latest_status))
-    narasi.append(recommendation_narrative(latest_status))
-
-    return "\n\n".join(narasi)
-
-
-# ==========================================================
-# MAIN TEST
-# ==========================================================
-if __name__ == "__main__":
-    print("🗣️ Narrator BMKG siap digunakan")
