@@ -1,17 +1,19 @@
 # ==========================================================
 #  PUTING BELIUNG DETECTOR – DASHBOARD OPERASIONAL
-#  Repo  : puting-beliung-detector
-#  Mode  : Realtime Monitoring
-#  Author: Tim Operasional
+#  MODE PUBLIK & INTERNAL
 # ==========================================================
 
 import streamlit as st
-from visualization.plotter import render_realtime_map
+
 from engine.realtime import load_realtime_data
+from engine.narrator import generate_narrative
+from engine.report import generate_pdf_report
 from engine.logger import setup_logger
 
+from visualization.plotter import render_realtime_map
+
 # ======================
-# CONFIG DASAR
+# KONFIGURASI HALAMAN
 # ======================
 st.set_page_config(
     page_title="Puting Beliung Detector",
@@ -22,41 +24,54 @@ st.set_page_config(
 logger = setup_logger()
 
 # ======================
-# SIDEBAR
+# SIDEBAR – MODE AKSES
 # ======================
 st.sidebar.title("🌪️ Puting Beliung Detector")
-st.sidebar.caption("Mode Operasional • Realtime")
+st.sidebar.caption("Dashboard Operasional")
 
+st.sidebar.markdown("## 🔐 Mode Akses")
+
+MODE_INTERNAL_PASSWORD = "bmkg_internal"  # ganti sesuai kebutuhan
+
+mode = st.sidebar.radio(
+    "Pilih Mode",
+    ["Publik", "Internal"],
+    index=0
+)
+
+is_internal = False
+if mode == "Internal":
+    pwd = st.sidebar.text_input("Password Internal", type="password")
+    if pwd == MODE_INTERNAL_PASSWORD:
+        is_internal = True
+        st.sidebar.success("Akses Internal Aktif")
+    else:
+        st.sidebar.warning("Masukkan password internal")
+
+# ======================
+# SIDEBAR – REFRESH
+# ======================
 st.sidebar.markdown("---")
-
 interval = st.sidebar.selectbox(
     "⏱️ Interval Update (detik)",
-    options=[30, 60, 120, 300],
+    [30, 60, 120, 300],
     index=1
 )
 
-show_map = st.sidebar.checkbox("🗺️ Tampilkan Peta", value=True)
-show_table = st.sidebar.checkbox("📋 Tampilkan Tabel Data", value=True)
-
-st.sidebar.markdown("---")
-st.sidebar.caption("BMKG Style Early Warning")
-
-# ======================
-# AUTO REFRESH
-# ======================
 st.experimental_autorefresh(
     interval=interval * 1000,
     key="auto_refresh_dashboard"
 )
 
 # ======================
-# HEADER
+# HEADER UTAMA
 # ======================
 st.title("🌪️ Dashboard Realtime Deteksi Puting Beliung")
+
 st.markdown(
     """
-    **Sistem pemantauan berbasis analisis dinamika atmosfer & satelit.**  
-    Update otomatis sesuai interval operasional.
+    Sistem pemantauan dini berbasis analisis dinamika atmosfer  
+    dan pengolahan data satelit secara realtime.
     """
 )
 
@@ -65,42 +80,64 @@ st.markdown(
 # ======================
 try:
     df_realtime = load_realtime_data()
-    logger.info("Realtime data loaded successfully")
+    logger.info("Realtime data loaded")
 except Exception as e:
     st.error("Gagal memuat data realtime")
     logger.error(f"Realtime load error: {e}")
     df_realtime = None
 
 # ======================
-# LAYOUT UTAMA
+# PETA REALTIME (PUBLIK & INTERNAL)
 # ======================
-if show_map:
-    st.subheader("🗺️ Peta Realtime Wilayah Terindikasi")
+st.subheader("🗺️ Peta Realtime Wilayah Terindikasi")
 
-    render_realtime_map(
-        realtime_df=df_realtime,
-        height=600
-    )
+render_realtime_map(
+    realtime_df=df_realtime,
+    height=600,
+    internal=is_internal
+)
 
 # ======================
-# TABEL DATA
+# KONTEN INTERNAL SAJA
 # ======================
-if show_table:
+if is_internal:
+
     st.subheader("📋 Data Realtime Deteksi")
-
     if df_realtime is not None and not df_realtime.empty:
-        st.dataframe(
-            df_realtime,
-            use_container_width=True
-        )
+        st.dataframe(df_realtime, use_container_width=True)
     else:
-        st.info("Belum ada data indikasi puting beliung.")
+        st.info("Belum terdapat indikasi signifikan.")
+
+    st.subheader("📝 Narasi Operasional BMKG")
+    narasi = generate_narrative(df_realtime)
+    st.info(narasi)
+
+    # ======================
+    # EXPORT PDF
+    # ======================
+    st.sidebar.markdown("---")
+    if st.sidebar.button("📄 Export PDF Laporan"):
+        pdf_path = generate_pdf_report(
+            df_realtime,
+            narasi
+        )
+        st.sidebar.success("Laporan berhasil dibuat")
+        st.sidebar.download_button(
+            "⬇️ Download PDF",
+            open(pdf_path, "rb"),
+            file_name=pdf_path.split("/")[-1]
+        )
+
+else:
+    st.caption(
+        "ℹ️ Detail teknis, narasi analisis, dan laporan PDF "
+        "hanya tersedia pada mode internal."
+    )
 
 # ======================
 # FOOTER
 # ======================
 st.markdown("---")
 st.caption(
-    "© Sistem Deteksi Dini Puting Beliung | "
-    "BMKG-style Operational Dashboard"
+    "© Sistem Deteksi Dini Puting Beliung | Dashboard Operasional"
 )
