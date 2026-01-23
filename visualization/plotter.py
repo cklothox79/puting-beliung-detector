@@ -1,69 +1,104 @@
 # ==========================================================
-# plotter.py
-# Visualisasi Peta Risiko Puting Beliung
-# Versi: BMKG Operasional
+#  PLOTTER – PETA REALTIME PUTING BELIUNG
+#  Module : visualization/plotter.py
 # ==========================================================
 
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-from datetime import datetime
+import folium
+import geopandas as gpd
+import streamlit as st
+from streamlit_folium import st_folium
 
-# ==========================================================
-# PETA GRID RISIKO
-# ==========================================================
-def plot_risk_map(ds, region_name="Wilayah Kajian", save_path=None):
+# ======================
+# LOAD SHAPEFILE (CACHE)
+# ======================
+@st.cache_data
+def load_boundary():
     """
-    Plot peta risiko puting beliung (grid)
+    Load batas wilayah (GeoJSON).
+    Disarankan: kecamatan / desa dalam format GeoJSON.
     """
-    if "RISK_FLAG_FILTERED" not in ds:
-        raise ValueError("Jalankan detector terlebih dahulu")
+    return gpd.read_file("data/shp/batas_wilayah.geojson")
 
-    risk = ds["RISK_FLAG_FILTERED"].isel(time=-1)
 
-    fig = plt.figure(figsize=(10, 8))
-    ax = plt.axes(projection=ccrs.PlateCarree())
+# ======================
+# RENDER MAP
+# ======================
+def render_realtime_map(realtime_df, height=600):
+    """
+    Menampilkan peta realtime dengan overlay wilayah
+    dan titik indikasi puting beliung
+    """
 
-    # Extent otomatis
-    ax.set_extent(
-        [
-            float(risk.lon.min()),
-            float(risk.lon.max()),
-            float(risk.lat.min()),
-            float(risk.lat.max()),
-        ],
-        crs=ccrs.PlateCarree(),
+    # ------------------
+    # Base Map
+    # ------------------
+    m = folium.Map(
+        location=[-7.5, 112.5],  # Jawa Timur
+        zoom_start=8,
+        tiles="CartoDB positron"
     )
 
-    # Base map
-    ax.add_feature(cfeature.COASTLINE, linewidth=1)
-    ax.add_feature(cfeature.BORDERS, linestyle=":")
-    ax.add_feature(cfeature.LAND, alpha=0.4)
-    ax.add_feature(cfeature.OCEAN, alpha=0.3)
+    # ------------------
+    # Overlay Wilayah
+    # ------------------
+    try:
+        gdf = load_boundary()
 
-    # Plot risiko
-    mesh = ax.pcolormesh(
-        risk.lon,
-        risk.lat,
-        risk,
-        transform=ccrs.PlateCarree(),
+        folium.GeoJson(
+            gdf,
+            name="Batas Wilayah",
+            style_function=lambda x: {
+                "fillColor": "transparent",
+                "color": "#333333",
+                "weight": 1
+            },
+            tooltip=folium.GeoJsonTooltip(
+                fields=[gdf.columns[0]],
+                aliases=["Wilayah"]
+            )
+        ).add_to(m)
+
+    except Exception as e:
+        st.warning(f"Gagal memuat batas wilayah: {e}")
+
+    # ------------------
+    # Titik Realtime
+    # ------------------
+    if realtime_df is not None and not realtime_df.empty:
+        for _, row in realtime_df.iterrows():
+
+            # Tentukan warna berdasar level
+            level = row.get("level", "WASPADA")
+
+            if level == "AWAS":
+                color = "red"
+            elif level == "SIAGA":
+                color = "orange"
+            else:
+                color = "yellow"
+
+            popup_text = f"""
+            <b>Lokasi</b> : {row.get('wilayah','-')}<br>
+            <b>Level</b> : {level}<br>
+            <b>Keterangan</b> : {row.get('keterangan','-')}
+            """
+
+            folium.CircleMarker(
+                location=[row["lat"], row["lon"]],
+                radius=7,
+                color=color,
+                fill=True,
+                fill_opacity=0.85,
+                popup=popup_text
+            ).add_to(m)
+
+    folium.LayerControl().add_to(m)
+
+    # ------------------
+    # Render ke Streamlit
+    # ------------------
+    st_folium(
+        m,
+        width=1200,
+        height=height
     )
-
-    # Colorbar manual
-    cbar = plt.colorbar(mesh, ax=ax, shrink=0.7)
-    cbar.set_ticks([0, 1, 2])
-    cbar.set_ticklabels(["Normal", "Waspada", "Bahaya"])
-    cbar.set_label("Tingkat Risiko")
-
-    # Judul
-    waktu = datetime.utcnow().strftime("%d %B %Y %H:%M UTC")
-    ax.set_title(
-        f"PETA RISIKO PUTING BELIUNG\n{region_name}\n{waktu}",
-        fontsize=12,
-        weight="bold",
-    )
-
-    if save_path:
-        plt.savefig(save_path, dpi=200, bbox_inches="tight")
-
-    plt.show()
