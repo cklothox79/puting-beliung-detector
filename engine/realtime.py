@@ -1,14 +1,15 @@
 # ==========================================================
-#  REALTIME DATA ENGINE
+#  REALTIME ENGINE – TERINTEGRASI DETECTOR
 #  Module : engine/realtime.py
 # ==========================================================
 
 import pandas as pd
 import random
 from datetime import datetime
+from engine.detector import run_detector
 
 # ======================
-# KONFIGURASI
+# SAMPLE LOKASI
 # ======================
 WILAYAH_SAMPLE = [
     {"wilayah": "Sidoarjo", "lat": -7.45, "lon": 112.70},
@@ -18,46 +19,32 @@ WILAYAH_SAMPLE = [
     {"wilayah": "Jombang", "lat": -7.55, "lon": 112.23},
 ]
 
-LEVELS = ["WASPADA", "SIAGA", "AWAS"]
-
-KETERANGAN = {
-    "WASPADA": "Pertumbuhan awan Cb terpantau",
-    "SIAGA": "Shear rendah dan konvergensi terdeteksi",
-    "AWAS": "Indikasi kuat puting beliung"
-}
-
 # ======================
-# GENERATE DATA REALTIME
+# LOAD REALTIME DATA
 # ======================
 def load_realtime_data():
     """
-    Menghasilkan data realtime indikasi puting beliung
-    (versi simulasi operasional)
+    Generate parameter atmosfer → detector → output peta
     """
 
-    data = []
+    raw = []
 
-    # Jumlah titik aktif (acak tapi realistis)
     n_points = random.randint(1, 4)
-
     selected = random.sample(WILAYAH_SAMPLE, n_points)
 
     for loc in selected:
-        level = random.choices(
-            LEVELS,
-            weights=[0.5, 0.3, 0.2],
-            k=1
-        )[0]
-
-        data.append({
-            "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+        raw.append({
             "wilayah": loc["wilayah"],
             "lat": loc["lat"] + random.uniform(-0.05, 0.05),
             "lon": loc["lon"] + random.uniform(-0.05, 0.05),
-            "level": level,
-            "keterangan": KETERANGAN[level]
+            "shear": round(random.uniform(5, 20), 1),      # knot
+            "cape": int(random.uniform(300, 3000)),        # J/kg
+            "cb_index": round(random.uniform(0.3, 0.9), 2) # indeks awan Cb
         })
 
-    df = pd.DataFrame(data)
+    raw_df = pd.DataFrame(raw)
 
-    return df
+    detected_df = run_detector(raw_df)
+    detected_df["timestamp"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+    return detected_df
